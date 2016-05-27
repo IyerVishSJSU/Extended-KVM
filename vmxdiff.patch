@@ -1,0 +1,501 @@
+--- ORIGINAL_vmx.c	2016-04-19 23:46:35.000000000 -0700
++++ MOD_vmx.c	2016-05-14 18:32:43.290670000 -0700
+@@ -58,7 +58,54 @@
+ 
+ MODULE_AUTHOR("Qumranet");
+ MODULE_LICENSE("GPL");
+-
++/*Exit Counters*/
++/*===================================*/
++u64 cpuid_exit_cntr;
++u64 exception_exit_cntr;
++u64 external_interrupt_exit_cntr;
++u64 triple_fault_exit_cntr;
++u64 nmi_window_exit_cntr;
++u64 io_exit_cntr;
++u64 cr_exit_cntr;
++u64 dr_exit_cntr;
++u64 rdmsr_exit_cntr;
++u64 wrmsr_exit_cntr;
++u64 interrupt_window_exit_cntr;
++u64 halt_exit_cntr;
++u64 invd_exit_cntr;
++u64 invlpg_exit_cntr;
++u64 rdpmc_exit_cntr;
++u64 vmcall_exit_cntr;
++u64 vmclear_exit_cntr;
++u64 vmlaunch_exit_cntr;
++u64 vmptrld_exit_cntr;
++u64 vmptrst_exit_cntr;
++u64 vmread_exit_cntr;
++u64 vmresume_exit_cntr;
++u64 vmwrite_exit_cntr;
++u64 vmoff_exit_cntr;
++u64 vmon_exit_cntr;
++u64 tpr_below_threshold_exit_cntr;
++u64 apic_access_exit_cntr;
++u64 apic_write_exit_cntr;
++u64 apic_eoi_induced_exit_cntr;
++u64 wbinvd_exit_cntr;
++u64 xsetbv_exit_cntr;
++u64 task_switch_exit_cntr;
++u64 machine_check_exit_cntr;
++u64 ept_violation_exit_cntr;
++u64 ept_misconfig_exit_cntr;
++u64 pause_exit_cntr;
++u64 mwait_exit_cntr;
++u64 monitor_trap_exit_cntr;
++u64 monitor_exit_cntr;
++u64 invept_exit_cntr;
++u64 invvpid_exit_cntr;
++u64 xsaves_exit_cntr;
++u64 xrstors_exit_cntr;
++u64 pml_full_exit_cntr;
++u64 pcommit_exit_cntr;
++/*====================================*/
+ static const struct x86_cpu_id vmx_cpu_id[] = {
+ 	X86_FEATURE_MATCH(X86_FEATURE_VMX),
+ 	{}
+@@ -5282,6 +5329,7 @@
+ static int handle_machine_check(struct kvm_vcpu *vcpu)
+ {
+ 	/* already handled by vcpu_run */
++	machine_check_exit_cntr++;
+ 	return 1;
+ }
+ 
+@@ -5296,7 +5344,7 @@
+ 
+ 	vect_info = vmx->idt_vectoring_info;
+ 	intr_info = vmx->exit_intr_info;
+-
++	exception_exit_cntr++;
+ 	if (is_machine_check(intr_info))
+ 		return handle_machine_check(vcpu);
+ 
+@@ -5399,12 +5447,14 @@
+ static int handle_external_interrupt(struct kvm_vcpu *vcpu)
+ {
+ 	++vcpu->stat.irq_exits;
++	external_interrupt_exit_cntr++;
+ 	return 1;
+ }
+ 
+ static int handle_triple_fault(struct kvm_vcpu *vcpu)
+ {
+ 	vcpu->run->exit_reason = KVM_EXIT_SHUTDOWN;
++	triple_fault_exit_cntr++;
+ 	return 0;
+ }
+ 
+@@ -5413,7 +5463,7 @@
+ 	unsigned long exit_qualification;
+ 	int size, in, string;
+ 	unsigned port;
+-
++	io_exit_cntr++;
+ 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 	string = (exit_qualification & 16) != 0;
+ 	in = (exit_qualification & 8) != 0;
+@@ -5525,7 +5575,7 @@
+ 	int cr;
+ 	int reg;
+ 	int err;
+-
++	cr_exit_cntr++;
+ 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 	cr = exit_qualification & 15;
+ 	reg = (exit_qualification >> 8) & 15;
+@@ -5602,10 +5652,10 @@
+ {
+ 	unsigned long exit_qualification;
+ 	int dr, dr7, reg;
+-
++	
+ 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 	dr = exit_qualification & DEBUG_REG_ACCESS_NUM;
+-
++	dr_exit_cntr++;
+ 	/* First, if DR does not exist, trigger UD */
+ 	if (!kvm_require_dr(vcpu, dr))
+ 		return 1;
+@@ -5700,6 +5750,7 @@
+ 
+ static int handle_cpuid(struct kvm_vcpu *vcpu)
+ {
++	cpuid_exit_cntr++;
+ 	kvm_emulate_cpuid(vcpu);
+ 	return 1;
+ }
+@@ -5708,7 +5759,7 @@
+ {
+ 	u32 ecx = vcpu->arch.regs[VCPU_REGS_RCX];
+ 	struct msr_data msr_info;
+-
++	rdmsr_exit_cntr++;
+ 	msr_info.index = ecx;
+ 	msr_info.host_initiated = false;
+ 	if (vmx_get_msr(vcpu, &msr_info)) {
+@@ -5729,6 +5780,7 @@
+ static int handle_wrmsr(struct kvm_vcpu *vcpu)
+ {
+ 	struct msr_data msr;
++	wrmsr_exit_cntr++;
+ 	u32 ecx = vcpu->arch.regs[VCPU_REGS_RCX];
+ 	u64 data = (vcpu->arch.regs[VCPU_REGS_RAX] & -1u)
+ 		| ((u64)(vcpu->arch.regs[VCPU_REGS_RDX] & -1u) << 32);
+@@ -5749,6 +5801,7 @@
+ 
+ static int handle_tpr_below_threshold(struct kvm_vcpu *vcpu)
+ {
++	tpr_below_threshold_exit_cntr++;
+ 	kvm_make_request(KVM_REQ_EVENT, vcpu);
+ 	return 1;
+ }
+@@ -5756,7 +5809,7 @@
+ static int handle_interrupt_window(struct kvm_vcpu *vcpu)
+ {
+ 	u32 cpu_based_vm_exec_control;
+-
++	interrupt_window_exit_cntr++;
+ 	/* clear pending irq */
+ 	cpu_based_vm_exec_control = vmcs_read32(CPU_BASED_VM_EXEC_CONTROL);
+ 	cpu_based_vm_exec_control &= ~CPU_BASED_VIRTUAL_INTR_PENDING;
+@@ -5770,24 +5823,27 @@
+ 
+ static int handle_halt(struct kvm_vcpu *vcpu)
+ {
++	interrupt_window_exit_cntr++;
+ 	return kvm_emulate_halt(vcpu);
+ }
+ 
+ static int handle_vmcall(struct kvm_vcpu *vcpu)
+ {
++	vmcall_exit_cntr++;
+ 	kvm_emulate_hypercall(vcpu);
+ 	return 1;
+ }
+ 
+ static int handle_invd(struct kvm_vcpu *vcpu)
+ {
++	invd_exit_cntr++;
+ 	return emulate_instruction(vcpu, 0) == EMULATE_DONE;
+ }
+ 
+ static int handle_invlpg(struct kvm_vcpu *vcpu)
+ {
+ 	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+-
++	invlpg_exit_cntr++;
+ 	kvm_mmu_invlpg(vcpu, exit_qualification);
+ 	skip_emulated_instruction(vcpu);
+ 	return 1;
+@@ -5796,7 +5852,7 @@
+ static int handle_rdpmc(struct kvm_vcpu *vcpu)
+ {
+ 	int err;
+-
++	rdpmc_exit_cntr++;
+ 	err = kvm_rdpmc(vcpu);
+ 	kvm_complete_insn_gp(vcpu, err);
+ 
+@@ -5805,6 +5861,7 @@
+ 
+ static int handle_wbinvd(struct kvm_vcpu *vcpu)
+ {
++	wbinvd_exit_cntr++;
+ 	kvm_emulate_wbinvd(vcpu);
+ 	return 1;
+ }
+@@ -5813,7 +5870,7 @@
+ {
+ 	u64 new_bv = kvm_read_edx_eax(vcpu);
+ 	u32 index = kvm_register_read(vcpu, VCPU_REGS_RCX);
+-
++	xsetbv_exit_cntr++;
+ 	if (kvm_set_xcr(vcpu, index, new_bv) == 0)
+ 		skip_emulated_instruction(vcpu);
+ 	return 1;
+@@ -5821,6 +5878,7 @@
+ 
+ static int handle_xsaves(struct kvm_vcpu *vcpu)
+ {
++	xsaves_exit_cntr++;
+ 	skip_emulated_instruction(vcpu);
+ 	WARN(1, "this should never happen\n");
+ 	return 1;
+@@ -5828,6 +5886,7 @@
+ 
+ static int handle_xrstors(struct kvm_vcpu *vcpu)
+ {
++	xrstors_exit_cntr++;
+ 	skip_emulated_instruction(vcpu);
+ 	WARN(1, "this should never happen\n");
+ 	return 1;
+@@ -5841,6 +5900,7 @@
+ 
+ 		access_type = exit_qualification & APIC_ACCESS_TYPE;
+ 		offset = exit_qualification & APIC_ACCESS_OFFSET;
++		apic_access_exit_cntr++;
+ 		/*
+ 		 * Sane guest uses MOV to write EOI, with written value
+ 		 * not cared. So make a short-circuit here by avoiding
+@@ -5860,7 +5920,7 @@
+ {
+ 	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 	int vector = exit_qualification & 0xff;
+-
++	apic_eoi_induced_exit_cntr++;
+ 	/* EOI-induced VM exit is trap-like and thus no need to adjust IP */
+ 	kvm_apic_set_eoi_accelerated(vcpu, vector);
+ 	return 1;
+@@ -5870,7 +5930,7 @@
+ {
+ 	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 	u32 offset = exit_qualification & 0xfff;
+-
++	apic_write_exit_cntr++;
+ 	/* APIC-write VM exit is trap-like and thus no need to adjust IP */
+ 	kvm_apic_write_nodecode(vcpu, offset);
+ 	return 1;
+@@ -5884,7 +5944,7 @@
+ 	u32 error_code = 0;
+ 	u16 tss_selector;
+ 	int reason, type, idt_v, idt_index;
+-
++	task_switch_exit_cntr++;
+ 	idt_v = (vmx->idt_vectoring_info & VECTORING_INFO_VALID_MASK);
+ 	idt_index = (vmx->idt_vectoring_info & VECTORING_INFO_VECTOR_MASK);
+ 	type = (vmx->idt_vectoring_info & VECTORING_INFO_TYPE_MASK);
+@@ -5947,7 +6007,7 @@
+ 	gpa_t gpa;
+ 	u32 error_code;
+ 	int gla_validity;
+-
++	ept_violation_exit_cntr++;
+ 	exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 
+ 	gla_validity = (exit_qualification >> 7) & 0x3;
+@@ -5995,6 +6055,7 @@
+ 	gpa_t gpa;
+ 
+ 	gpa = vmcs_read64(GUEST_PHYSICAL_ADDRESS);
++	ept_misconfig_exit_cntr++;
+ 	if (!kvm_io_bus_write(vcpu, KVM_FAST_MMIO_BUS, gpa, 0, NULL)) {
+ 		skip_emulated_instruction(vcpu);
+ 		trace_kvm_fast_mmio(gpa);
+@@ -6023,6 +6084,7 @@
+ 
+ static int handle_nmi_window(struct kvm_vcpu *vcpu)
+ {
++	nmi_window_exit_cntr++;
+ 	u32 cpu_based_vm_exec_control;
+ 
+ 	/* clear pending NMI */
+@@ -6406,6 +6468,7 @@
+  */
+ static int handle_pause(struct kvm_vcpu *vcpu)
+ {
++	pause_exit_cntr++;
+ 	if (ple_gap)
+ 		grow_ple_window(vcpu);
+ 
+@@ -6423,17 +6486,20 @@
+ 
+ static int handle_mwait(struct kvm_vcpu *vcpu)
+ {
++	mwait_exit_cntr++;
+ 	printk_once(KERN_WARNING "kvm: MWAIT instruction emulated as NOP!\n");
+ 	return handle_nop(vcpu);
+ }
+ 
+ static int handle_monitor_trap(struct kvm_vcpu *vcpu)
+ {
++	monitor_trap_exit_cntr++;
+ 	return 1;
+ }
+ 
+ static int handle_monitor(struct kvm_vcpu *vcpu)
+ {
++	monitor_exit_cntr++;
+ 	printk_once(KERN_WARNING "kvm: MONITOR instruction emulated as NOP!\n");
+ 	return handle_nop(vcpu);
+ }
+@@ -6794,7 +6860,7 @@
+ 	struct vmcs *shadow_vmcs;
+ 	const u64 VMXON_NEEDED_FEATURES = FEATURE_CONTROL_LOCKED
+ 		| FEATURE_CONTROL_VMXON_ENABLED_OUTSIDE_SMX;
+-
++	vmon_exit_cntr++;
+ 	/* The Intel VMX Instruction Reference lists a bunch of bits that
+ 	 * are prerequisite to running VMXON, most notably cr4.VMXE must be
+ 	 * set to 1 (see vmx_set_cr4() for when we allow the guest to set this).
+@@ -6949,6 +7015,7 @@
+ /* Emulate the VMXOFF instruction */
+ static int handle_vmoff(struct kvm_vcpu *vcpu)
+ {
++	vmoff_exit_cntr++;
+ 	if (!nested_vmx_check_permission(vcpu))
+ 		return 1;
+ 	free_nested(to_vmx(vcpu));
+@@ -6964,7 +7031,7 @@
+ 	gpa_t vmptr;
+ 	struct vmcs12 *vmcs12;
+ 	struct page *page;
+-
++	vmclear_exit_cntr++;
+ 	if (!nested_vmx_check_permission(vcpu))
+ 		return 1;
+ 
+@@ -7003,13 +7070,14 @@
+ /* Emulate the VMLAUNCH instruction */
+ static int handle_vmlaunch(struct kvm_vcpu *vcpu)
+ {
++	vmlaunch_exit_cntr++;
+ 	return nested_vmx_run(vcpu, true);
+ }
+ 
+ /* Emulate the VMRESUME instruction */
+ static int handle_vmresume(struct kvm_vcpu *vcpu)
+ {
+-
++	vmresume_exit_cntr++;
+ 	return nested_vmx_run(vcpu, false);
+ }
+ 
+@@ -7206,7 +7274,7 @@
+ 	unsigned long exit_qualification = vmcs_readl(EXIT_QUALIFICATION);
+ 	u32 vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
+ 	gva_t gva = 0;
+-
++	vmread_exit_cntr++;
+ 	if (!nested_vmx_check_permission(vcpu) ||
+ 	    !nested_vmx_check_vmcs12(vcpu))
+ 		return 1;
+@@ -7256,7 +7324,7 @@
+ 	 */
+ 	u64 field_value = 0;
+ 	struct x86_exception e;
+-
++	vmwrite_exit_cntr++;
+ 	if (!nested_vmx_check_permission(vcpu) ||
+ 	    !nested_vmx_check_vmcs12(vcpu))
+ 		return 1;
+@@ -7300,7 +7368,7 @@
+ {
+ 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+ 	gpa_t vmptr;
+-
++	vmptrld_exit_cntr++;
+ 	if (!nested_vmx_check_permission(vcpu))
+ 		return 1;
+ 
+@@ -7351,7 +7419,7 @@
+ 	u32 vmx_instruction_info = vmcs_read32(VMX_INSTRUCTION_INFO);
+ 	gva_t vmcs_gva;
+ 	struct x86_exception e;
+-
++	vmptrst_exit_cntr++;
+ 	if (!nested_vmx_check_permission(vcpu))
+ 		return 1;
+ 
+@@ -7373,6 +7441,7 @@
+ /* Emulate the INVEPT instruction */
+ static int handle_invept(struct kvm_vcpu *vcpu)
+ {
++	invept_exit_cntr++;
+ 	struct vcpu_vmx *vmx = to_vmx(vcpu);
+ 	u32 vmx_instruction_info, types;
+ 	unsigned long type;
+@@ -7445,7 +7514,7 @@
+ 	gva_t gva;
+ 	struct x86_exception e;
+ 	int vpid;
+-
++	invvpid_exit_cntr++;
+ 	if (!(vmx->nested.nested_vmx_secondary_ctls_high &
+ 	      SECONDARY_EXEC_ENABLE_VPID) ||
+ 			!(vmx->nested.nested_vmx_vpid_caps & VMX_VPID_INVVPID_BIT)) {
+@@ -7503,6 +7572,7 @@
+ static int handle_pml_full(struct kvm_vcpu *vcpu)
+ {
+ 	unsigned long exit_qualification;
++	pml_full_exit_cntr++;
+ 
+ 	trace_kvm_pml_full(vcpu->vcpu_id);
+ 
+@@ -7527,6 +7597,7 @@
+ 
+ static int handle_pcommit(struct kvm_vcpu *vcpu)
+ {
++	pcommit_exit_cntr++;
+ 	/* we never catch pcommit instruct for L1 guest. */
+ 	WARN_ON(1);
+ 	return 1;
+@@ -8212,15 +8283,64 @@
+ 			vmx->soft_vnmi_blocked = 0;
+ 		}
+ 	}
+-
++	/*Exit Counter Final Values*/
++	printk(KERN_ERR "Exit: handle_cpuid_exit_cntr--%llu\n",cpuid_exit_cntr);
++	printk(KERN_ERR "Exit: handle_exception_exit_cntr--%llu\n",exception_exit_cntr);
++	printk(KERN_ERR "Exit: handle_external_interrupt_exit_cntr--%llu\n",external_interrupt_exit_cntr);
++	printk(KERN_ERR "Exit: handle_triple_fault_exit_cntr--%llu\n",triple_fault_exit_cntr);
++	printk(KERN_ERR "Exit: handle_nmi_window_exit_cntr--%llu\n",nmi_window_exit_cntr);
++	printk(KERN_ERR "Exit: handle_io_exit_cntr--%llu\n",io_exit_cntr);
++	printk(KERN_ERR "Exit: handle_cr_exit_cntr--%llu\n",cr_exit_cntr);
++	printk(KERN_ERR "Exit: handle_dr_exit_cntr--%llu\n",dr_exit_cntr);
++	printk(KERN_ERR "Exit: handle_rdmsr_exit_cntr--%llu\n",rdmsr_exit_cntr);
++	printk(KERN_ERR "Exit: handle_wrmsr_exit_cntr--%llu\n",wrmsr_exit_cntr);
++	printk(KERN_ERR "Exit: handle_interrupt_window_exit_cntr--%llu\n",interrupt_window_exit_cntr);
++	printk(KERN_ERR "Exit: handle_halt_exit_cntr--%llu\n",halt_exit_cntr);
++	printk(KERN_ERR "Exit: handle_invd_exit_cntr--%llu\n",invd_exit_cntr);
++	printk(KERN_ERR "Exit: handle_invlpg_exit_cntr--%llu\n",invlpg_exit_cntr);
++	printk(KERN_ERR "Exit: handle_rdpmc_exit_cntr--%llu\n",rdpmc_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmcall_exit_cntr--%llu\n",vmcall_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmclear_exit_cntr--%llu\n",vmclear_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmlaunch_exit_cntr--%llu\n",vmlaunch_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmptrld_exit_cntr--%llu\n",vmptrld_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmptrst_exit_cntr--%llu\n",vmptrst_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmread_exit_cntr--%llu\n",vmread_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmresume_exit_cntr--%llu\n",vmresume_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmwrite_exit_cntr--%llu\n",vmwrite_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmoff_exit_cntr--%llu\n",vmoff_exit_cntr);
++	printk(KERN_ERR "Exit: handle_vmon_exit_cntr--%llu\n",vmon_exit_cntr);
++	printk(KERN_ERR "Exit: handle_tpr_below_threshold_exit_cntr--%llu\n",tpr_below_threshold_exit_cntr);
++	printk(KERN_ERR "Exit: handle_apic_access_exit_cntr--%llu\n",apic_access_exit_cntr);
++	printk(KERN_ERR "Exit: handle_apic_write_exit_cntr--%llu\n",apic_write_exit_cntr);
++	printk(KERN_ERR "Exit: handle_apic_eoi_induced_exit_cntr--%llu\n",apic_eoi_induced_exit_cntr);
++	printk(KERN_ERR "Exit: handle_wbinvd_exit_cntr--%llu\n",wbinvd_exit_cntr);
++	printk(KERN_ERR "Exit: handle_xsetbv_exit_cntr--%llu\n",xsetbv_exit_cntr);
++	printk(KERN_ERR "Exit: handle_task_switch_exit_cntr--%llu\n",task_switch_exit_cntr);
++	printk(KERN_ERR "Exit: handle_machine_check_exit_cntr--%llu\n",machine_check_exit_cntr);
++	printk(KERN_ERR "Exit: handle_ept_violation_exit_cntr--%llu\n",ept_violation_exit_cntr);
++	printk(KERN_ERR "Exit: handle_ept_misconfig_exit_cntr--%llu\n",ept_misconfig_exit_cntr);
++	printk(KERN_ERR "Exit: handle_pause_exit_cntr--%llu\n",pause_exit_cntr);
++	printk(KERN_ERR "Exit: handle_mwait_exit_cntr--%llu\n",mwait_exit_cntr);
++	printk(KERN_ERR "Exit: handle_monitor_trap_exit_cntr--%llu\n",monitor_trap_exit_cntr);
++	printk(KERN_ERR "Exit: handle_monitor_exit_cntr--%llu\n",monitor_exit_cntr);
++	printk(KERN_ERR "Exit: handle_invept_exit_cntr--%llu\n",invept_exit_cntr);
++	printk(KERN_ERR "Exit: handle_invvpid_exit_cntr--%llu\n",invvpid_exit_cntr);
++	printk(KERN_ERR "Exit: handle_xsaves_exit_cntr--%llu\n",xsaves_exit_cntr);
++	printk(KERN_ERR "Exit: handle_xrstors_exit_cntr--%llu\n",xrstors_exit_cntr);
++	printk(KERN_ERR "Exit: handle_pml_full_exit_cntr--%llu\n",pml_full_exit_cntr);
++	printk(KERN_ERR "Exit: handle_pcommit_exit_cntr--%llu\n",pcommit_exit_cntr);
++	/*Exit Counter Measurement Ends*/
++		
+ 	if (exit_reason < kvm_vmx_max_exit_handlers
+ 	    && kvm_vmx_exit_handlers[exit_reason])
++	    {
+ 		return kvm_vmx_exit_handlers[exit_reason](vcpu);
++	}
+ 	else {
+ 		WARN_ONCE(1, "vmx: unexpected exit reason 0x%x\n", exit_reason);
+ 		kvm_queue_exception(vcpu, UD_VECTOR);
+ 		return 1;
+-	}
++	}	
+ }
+ 
+ static void update_cr8_intercept(struct kvm_vcpu *vcpu, int tpr, int irr)
